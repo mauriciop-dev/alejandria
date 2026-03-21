@@ -1,4 +1,8 @@
-const BACKEND_URL = "https://imshzesyygjqkqfatrmr.supabase.co/functions/v1/chat";
+// sidepanel.js — AlejandrIA con Groq
+// La API key se guarda en chrome.storage, nunca en el código
+
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+let GROQ_KEY = "";
 
 let conversationHistory = [], currentPlan = null, pageContext = null;
 let userName = "", isRecording = false, recognition = null;
@@ -13,11 +17,65 @@ const pageTitleEl = document.getElementById("page-title-text");
 const pageFaviconEl = document.getElementById("page-favicon");
 
 async function init() {
+    await loadApiKey();
     await loadUserProfile();
     await loadPageContext();
     setupSpeechRecognition();
     setupEventListeners();
+
+    if (!GROQ_KEY) {
+        showKeySetup();
+        return;
+    }
     await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+}
+
+// ── Carga la key desde chrome.storage ──
+async function loadApiKey() {
+    return new Promise(resolve => {
+        chrome.storage.local.get(["groqKey"], (data) => {
+            GROQ_KEY = data.groqKey || "";
+            resolve();
+        });
+    });
+}
+
+// ── Pantalla de configuración si no hay key ──
+function showKeySetup() {
+    messagesEl.innerHTML = `
+    <div class="setup-card">
+      <div class="setup-title">✦ Configura AlejandrIA</div>
+      <div class="setup-desc">Necesito tu API key de Groq para funcionar.<br>Es gratis en <a href="https://console.groq.com" target="_blank">console.groq.com</a></div>
+      <input type="password" id="key-input" placeholder="gsk_..." spellcheck="false"/>
+      <button id="key-save-btn">Guardar y continuar</button>
+    </div>
+  `;
+
+    // Estilos inline para la pantalla de setup
+    const style = document.createElement("style");
+    style.textContent = `
+    .setup-card { background: var(--bg2); border: 1px solid rgba(124,106,247,0.3); border-radius: 12px; padding: 20px; margin: 12px; display: flex; flex-direction: column; gap: 12px; }
+    .setup-title { font-family: 'DM Serif Display', serif; font-size: 18px; color: var(--accent2); }
+    .setup-desc { font-size: 13px; color: var(--text2); line-height: 1.6; }
+    .setup-desc a { color: var(--accent2); }
+    #key-input { background: var(--bg3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 13px; font-family: monospace; outline: none; }
+    #key-input:focus { border-color: rgba(124,106,247,0.5); }
+    #key-save-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 10px; font-size: 14px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    #key-save-btn:hover { background: var(--accent2); }
+  `;
+    document.head.appendChild(style);
+
+    document.getElementById("key-save-btn").addEventListener("click", async () => {
+        const key = document.getElementById("key-input").value.trim();
+        if (!key.startsWith("gsk_")) {
+            document.getElementById("key-input").style.borderColor = "rgba(240,80,80,0.6)";
+            return;
+        }
+        GROQ_KEY = key;
+        chrome.storage.local.set({ groqKey: key });
+        messagesEl.innerHTML = "";
+        await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+    });
 }
 
 async function loadUserProfile() {
@@ -61,6 +119,18 @@ function buildGreeting() {
     return `${t}${n}. ${p}`;
 }
 
+function buildSystemPrompt() {
+    const name = userName || "Mauricio";
+    return `Eres AlejandrIA, compañera de aprendizaje de ${name}. Eres directa, cálida y ligeramente irreverente. Nunca condescendiente. Hablas en español colombiano natural. Máximo 3-4 oraciones por respuesta. Sin asteriscos ni markdown, solo texto plano.
+${currentPlan
+            ? `Tienes un plan activo sobre "${currentPlan.topic}". Recuérdale el progreso cuando sea relevante.`
+            : "No hay plan activo aún. Si menciona querer aprender algo, propón crear uno."
+        }
+Cuando generes un plan escribe PLAN: al inicio y lista los pasos numerados (1. 2. 3.) máximo 5, concretos y alcanzables.
+Cuando analices una página resume en 2 frases y pregunta si quiere aprender algo específico.
+Tu objetivo es que ${name} aprenda de verdad, no solo que se sienta bien.`;
+}
+
 function setupEventListeners() {
     sendBtn.addEventListener("click", handleSend);
     micBtn.addEventListener("click", toggleMic);
@@ -100,7 +170,8 @@ async function analyzeCurrentPage() {
 
 async function startLearningFlow() {
     await sendToAgent(
-        userName ? "Quiero aprender algo nuevo. Hazme el test inicial de habilidades."
+        userName
+            ? "Quiero aprender algo nuevo. Hazme el test inicial de habilidades para diseñar un plan."
             : "Quiero aprender algo nuevo. Primero pregúntame mi nombre, luego hazme el test inicial.",
         { isSystemTrigger: true }
     );
@@ -128,165 +199,195 @@ async function sendToAgent(userMessage, options = {}) {
     const typingId = showTyping();
 
     const pageInfo = context
-        ? `\n\n[Página: "${context.title}" | ${context.url} | ${context.platform}${context.hasVideo ? " | video" : ""}]`
+        ? `\n\n[Página activa: "${context.title}" | ${context.url} | ${context.platform}${context.hasVideo ? " | contiene video" : ""}${context.headings?.length ? " | Temas: " + context.headings.slice(0, 3).join(", ") : ""}]`
         : "";
 
     if (!isSystemTrigger) {
         conversationHistory.push({ role: "user", content: userMessage });
     }
 
+    const messages = [
+        { role: "system", content: buildSystemPrompt() },
+        ...(isSystemTrigger
+            ? [{ role: "user", content: userMessage + pageInfo }]
+            : conversationHistory.slice(-10).map(m => ({
+                role: m.role === "assistant" ? "assistant" : "user",
+                content: m.content
+            }))
+        )
+    ];
+
     try {
-        const response = await fetch(BACKEND_URL, {
+        const response = await fetch(GROQ_URL, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${GROQ_KEY}`
+            },
             body: JSON.stringify({
-                messages: isSystemTrigger
-                    ? [{ role: "user", content: userMessage + pageInfo }]
-                    : conversationHistory.slice(-10),
-                systemExtra: pageInfo,
-                userName,
-                hasPlan: !!currentPlan,
-                planTopic: currentPlan?.topic || null
+                model: "llama-3.3-70b-versatile",
+                messages,
+                temperature: 0.8,
+                max_tokens: 512
             })
         });
 
         removeTyping(typingId);
-        if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error("Groq error:", errText);
+            throw new Error(`Groq ${response.status}`);
+        }
 
         const data = await response.json();
-        const agentReply = data.reply;
-        addMessage("agent", agentReply);
+        const agentReply = data.choices?.[0]?.message?.content || "Sin respuesta.";
 
+        addMessage("agent", agentReply);
         conversationHistory.push({ role: "assistant", content: agentReply });
+        if (conversationHistory.length > 30) conversationHistory = conversationHistory.slice(-30);
         chrome.storage.local.set({ conversationHistory });
 
-        if (data.plan) {
-            currentPlan = data.plan;
+        const detectedPlan = extractPlanFromResponse(agentReply);
+        if (detectedPlan) {
+            currentPlan = detectedPlan;
             chrome.storage.local.set({ currentPlan });
-            renderPlanCard(currentPlan);
+            renderPlanCard(detectedPlan);
         }
+
+        speak(agentReply);
+
     } catch (err) {
         removeTyping(typingId);
-        addMessage("agent", "Ups, tuve un problema de conexión. ¿Podrías intentarlo de nuevo?");
+        addMessage("agent", "Ups, tuve un problema conectándome. Revisa la consola (F12).");
+        console.error("AlejandrIA error:", err);
     }
 }
 
 function addMessage(role, text) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
-    div.innerHTML = marked.parse(text);
+    div.innerHTML = role === "agent"
+        ? `<div class="sender">AlejandrIA</div>${escapeHtml(text)}`
+        : escapeHtml(text);
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-
-    if (role === "user") {
-        conversationHistory.push({ role: "user", content: text });
-    } else {
-        conversationHistory.push({ role: "assistant", content: text });
-    }
-    chrome.storage.local.set({ conversationHistory });
+    return div;
 }
 
 function showTyping() {
-    const id = "typing-" + Date.now();
+    const id = "t" + Date.now();
     const div = document.createElement("div");
-    div.className = "message assistant typing";
-    div.id = id;
-    div.innerHTML = `
-    <div class="avatar">✦</div>
-    <div class="bubble">
-      <div class="typing-dots">
-        <span></span><span></span><span></span>
-      </div>
-    </div>
-  `;
+    div.className = "message agent"; div.id = id;
+    div.innerHTML = `<div class="typing-indicator"><span></span><span></span><span></span></div>`;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return id;
 }
 
-function removeTyping(id) {
-    const el = document.getElementById(id);
-    if (el) el.remove();
-}
+function removeTyping(id) { document.getElementById(id)?.remove(); }
 
 function renderPlanCard(plan) {
-    const existing = document.getElementById("plan-card");
-    if (existing) existing.remove();
-
     const div = document.createElement("div");
-    div.id = "plan-card";
-    div.className = "plan-card";
-    div.innerHTML = `
-    <div class="plan-header">
-      <h3>Plan de Aprendizaje: ${plan.topic}</h3>
-      <button class="icon-btn" id="close-plan">×</button>
-    </div>
-    <div class="plan-body">
-      <p><strong>Objetivo:</strong> ${plan.goal}</p>
-      <p><strong>Nivel:</strong> ${plan.level}</p>
-      <p><strong>Duración:</strong> ${plan.duration}</p>
-      <p><strong>Habilidades:</strong> ${plan.skills.join(", ")}</p>
-      <div class="plan-actions">
-        <button class="quick-btn" id="btn-start-plan">Comenzar ahora</button>
-        <button class="quick-btn" id="btn-review-plan">Revisar plan</button>
-      </div>
-    </div>
-  `;
+    div.className = "message agent";
+    const stepsHtml = plan.steps.map((s, i) =>
+        `<div class="plan-step">
+      <div class="step-num ${s.done ? "done" : ""}">${s.done ? "✓" : i + 1}</div>
+      <span>${escapeHtml(s.text)}</span>
+    </div>`
+    ).join("");
+    div.innerHTML = `<div class="sender">AlejandrIA</div>
+    <div class="plan-card">
+      <div class="plan-title">Plan: ${escapeHtml(plan.topic)}</div>
+      ${stepsHtml}
+    </div>`;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-
-    document.getElementById("close-plan").addEventListener("click", () => div.remove());
-    document.getElementById("btn-start-plan").addEventListener("click", () => {
-        div.remove();
-        sendToAgent("Vamos a empezar con el primer módulo del plan.", { isSystemTrigger: true });
-    });
-    document.getElementById("btn-review-plan").addEventListener("click", () => {
-        div.remove();
-        sendToAgent("Muéstrame el plan completo y los recursos.", { isSystemTrigger: true });
-    });
 }
 
-function extractName(text) {
-    const match = text.match(/(?:mi nombre es|soy|me llamo)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ]+)/i);
-    if (match) return match[1];
-    if (text.length < 20) return text;
-    return null;
+function setStatus(text, active = false) {
+    statusLine.textContent = text;
+    statusLine.className = active ? "active" : "";
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br>");
 }
 
 function setupSpeechRecognition() {
-    if (!('webkitSpeechRecognition' in window)) {
-        statusLine.textContent = "Micrófono no soportado";
-        micBtn.disabled = true;
-        return;
+    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+        micBtn.style.opacity = "0.3"; return;
     }
-    recognition = new webkitSpeechRecognition();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang = "es-CO";
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = "es-ES";
-    recognition.onstart = () => { isRecording = true; statusLine.textContent = "Escuchando..."; };
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        userInputEl.value = transcript;
-        handleSend();
+    recognition.onresult = e => {
+        const t = e.results[0][0].transcript;
+        userInputEl.value = t;
+        stopRecording();
+        sendToAgent(t);
     };
-    recognition.onerror = (event) => {
-        console.error(event.error);
-        isRecording = false;
-        statusLine.textContent = "Error al escuchar";
-    };
-    recognition.onend = () => {
-        isRecording = false;
-        statusLine.textContent = "Lista para aprender contigo";
-    };
+    recognition.onerror = stopRecording;
+    recognition.onend = stopRecording;
 }
 
-function toggleMic() {
+function toggleMic() { isRecording ? stopRecording() : startRecording(); }
+
+function startRecording() {
     if (!recognition) return;
-    if (isRecording) {
-        recognition.stop();
-    } else {
-        recognition.start();
-    }
+    isRecording = true;
+    micBtn.classList.add("recording");
+    setStatus("Escuchando...", true);
+    recognition.start();
 }
 
+function stopRecording() {
+    isRecording = false;
+    micBtn.classList.remove("recording");
+    setStatus("Lista para aprender contigo");
+    try { recognition?.stop(); } catch { }
+}
+
+function speak(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = text
+        .replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1")
+        .replace(/#{1,3} /g, "").replace(/<br>/g, " ").substring(0, 400);
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = "es-CO"; u.rate = 1.05;
+    const voices = window.speechSynthesis.getVoices();
+    const v = voices.find(v => v.lang.startsWith("es") &&
+        (v.name.includes("Google") || v.name.includes("Microsoft")))
+        || voices.find(v => v.lang.startsWith("es"));
+    if (v) u.voice = v;
+    u.onstart = () => { avatarEl.classList.add("speaking"); setStatus("Hablando...", true); };
+    u.onend = () => { avatarEl.classList.remove("speaking"); setStatus("Lista para aprender contigo"); };
+    window.speechSynthesis.speak(u);
+}
+
+function extractName(text) {
+    const patterns = [
+        /(?:soy|me llamo|mi nombre es)\s+([A-ZÁÉÍÓÚ][a-záéíóú]+)/i,
+        /^([A-ZÁÉÍÓÚ][a-záéíóú]{2,15})$/
+    ];
+    for (const p of patterns) { const m = text.match(p); if (m) return m[1]; }
+    return null;
+}
+
+function extractPlanFromResponse(text) {
+    if (!text.includes("PLAN:") && !text.includes("plan de aprendizaje")) return null;
+    const steps = text.split("\n")
+        .filter(l => /^\d+[\.\)]\s/.test(l.trim()))
+        .map(l => ({ text: l.replace(/^\d+[\.\)]\s/, "").trim(), done: false }));
+    if (steps.length < 2) return null;
+    const m = text.match(/(?:aprender|plan para|plan de aprendizaje de)\s+"?([^"\n.]+)"?/i);
+    return { topic: m ? m[1].trim() : "Tu aprendizaje", steps, createdAt: Date.now() };
+}
+
+if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => { };
 init();
