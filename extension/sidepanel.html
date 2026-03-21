@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlejandrIA</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="app">
+        <div id="header">
+            <div id="avatar">✦</div>
+            <div id="header-info">
+                <div id="agent-name">AlejandrIA</div>
+                <div id="status-line">Lista para aprender contigo</div>
+            </div>
+        </div>
+        <div id="page-context-bar">
+            <img id="page-favicon" src="" alt="">
+            <span id="page-title-text">Leyendo página...</span>
+        </div>
+        <div id="messages"></div>
+        <div id="input-area">
+            <div id="text-input-row">
+                <textarea id="user-input" placeholder="Escríbeme o usa el micrófono..." rows="1"></textarea>
+                <button class="icon-btn" id="mic-btn" title="Hablar">🎙</button>
+                <button class="icon-btn" id="send-btn" title="Enviar">↑</button>
+            </div>
+            <div id="action-row">
+                <button class="quick-btn" id="btn-analyze">¿Qué es esta página?</button>
+                <button class="quick-btn" id="btn-learn">Quiero aprender algo</button>
+                <button class="quick-btn" id="btn-plan">Ver mi plan</button>
+            </div>
+        </div>
+    </div>
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>
