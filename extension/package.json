@@ -1,0 +1,27 @@
+{
+    "name": "alejandria",
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "node server.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2"
+    }
+}
+```
+
+**`.gitignore`** en la raíz:
+```
+.env
+node_modules/
+.DS_Store
+.vercel/
+```
+
+**`.env.example`** en la raíz:
+```
+GEMINI_API_KEY=AIzaSyCl0MOwuonQzTNDZnYGizGDGl_TA-aBuyE
+PORT=3000
