@@ -1,0 +1,46 @@
+Nombre de la Extensión: AlejandrIA
+
+Justificación
+
+Cuando los seres humano estamos aprendiendo algo nuevo o reforzando los conocimientos, nos enfrentamos a diferentes retos, la capacidad de aprendizaje individual, el contexto, la tecnología, los incertidumbres y expectativas de cada uno. Esta cantidad de variables hace que muchos se rindan y no sean constantes en su aprendizaje.
+
+Por ejemplo cuando aprendemos con videos, nos enfrentamos a tener que ver el video, pararlo e ir a hacer lo que nos dice el video y ver si funciona. Cuando no funciona viene la frustración, los varios intentos, ver el video de nuevo y volver a intentar, esto deriva en frustración y perdida de interés y por supuesto abandono del aprendizaje.
+
+Problema
+
+El abandono, la deserción en el aprendizaje en linea hace que las personas desconfíen de esta forma de aprendizaje, por que a su alrededor han visto que solo a unos pocos muy disciplinados les funciona y eso ha generado la desconfianza colectiva sobre el aprendizaje en linea.
+
+Objetivo
+
+Crear una extension para Chrome, que active todas un ecosistema de tecnologías que hagan que la experiencia de aprender mejore significativamente.
+
+Alcance
+
+Los seres humanos aprendemos en la interacción con otros, en la conversación, en el ejemplo, en el escuchar y sobre todo hablando sobre lo que entendemos logramos retenerlo mucho mejor. De esta interacción justamente es de la que carecen los cursos de hoy dia en internet, y por eso con este proyecto lo que se pretende es construir una herramienta que se acerque lo mas posible esa forma de aprender, a construir esa otredad entre hombre, Inteligencia Artificial y maquina.
+
+Por eso lo que se propone aquí, es que la IA pueda usar sus sentidos, EL Micrófono, La camara, los parlantes, mapear los hábitos y comportamientos del usuario para comunicarse con el usuario. 
+
+Incluso que El agente que interactúa con el usuario pueda tener una identidad y el usuario pueda configurar sus características (Voz, carácter, etcetera). Es importante que este agente no sea condescendiente con el usuario como es típicamente un modelo de IA, como va a tener un papel orientador también debe tener la seguridad para decir al usuario que se definió un plan de trabajo para aprender cierta habilidad y que es importante seguirlo, a su vez debe ser empático con las observaciones del usuario y darle su lugar pero en su justo momento.
+
+Los agentes harán uso de sus sentidos, camara, micrófono, parlantes y estudio de comportamiento del usuario para identificar sus hábitos, posibilidades de mejora y los usara inteligentemente para reforzar el deseo de aprendizaje del usuario.
+
+Nota: algunas vece bromeo diciendo que esto debería generar la misma dopamina o adicción de las redes sociales.
+
+
+Estímulos
+
+Los estímulos o reconocimientos, también son importantes y los hay formales y los que estimulan el reconocimiento de otros, podrás cuando el estudiante completa un plan o el aprendizaje de una interfaz, AlejandrIA le podrá generar un certificado en pdf que reconoce el manejo de esta habilidad.
+
+La otra forma de reconocimiento es que mientras el usuario va avanzando en su aprendizaje, tu le vas tomando fotos o le tomas 3 segundo de video y al final del plan o curso le construyes un video de 15 o 20 segundos que muestra el proceso de aprendizaje y la obtención del certificado de AlejandrIA.
+
+Características
+
+Para mitigar el uso de viejas tecnologías que dificulten el desarrollo de esta extensión de chrome, preferiría aunque no es mandatorio que uses las tecnologías reseñadas en los archivos Tenologias_1.txt y Tecnologias_2.txt quiero que primero hagas una revision de estas, las entiendas y luego me digas como las usamos para este proyecto, Adicionalmente estaría encantado de escuchar tus sugerencias de otras tecnologías.
+
+Recuerda que te di acceso a GitHub, a Vercel, a Supabase para este desarrollo, incluso de daré APikey de Gemini, Groq, Minimax, Deepseek entre otras para que no son detengamos por modelos de razonamiento.
+
+Experiencia de usuario
+
+Lo que yo me imagino (por que inicialmente yo voy a probar la extension y un grupo pequeño de personas. ya mas adelante si el tema prospera, lo volvemos negocio), entonces lo que me imagino como usuario es que voy navegando por internet y me encuentro con una plataforma que no se como funciona, entonces activo la extension y te digo, "de que se trata esta pagina?" tu usaras tus herramientas de navegación y scraping para decirme de que se trata y me preguntas si me interesa aprender algo en particular de como funciona o un aprendizaje completo. lo mismo si es una pagina de una empresa, una tecnología, un video, etcetera.
+
+Lo otro que me  imagino es que activo la extension y te digo, quiero aprender ingles, quiero aprender a programar en la nueva era de la IA o cualquier otro tema, entonces tu dices "Hola Mauricio, Claro que si, tiene algo en mente o hacemos un test inicial de tus habilidades para poder diseñar nuestro plan de trabajo" y así vamos avanzando, como puede ver mi navegador, podemos por ejemplo abrir un google sheet y practicar escritura, o te me presentas como un holograma en pantalla y practicamos conversación y escucha o pones en pantalla una noticia que sea de mi interés y me invitas a leerla (recuerda que puedes interrumpir, cuando revises los archivos de tecnologías lo vas a descubrir).  
