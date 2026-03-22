@@ -1,11 +1,9 @@
 // sidepanel.js — AlejandrIA con Groq
-// La API key se guarda en chrome.storage, nunca en el código
-
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 let GROQ_KEY = "";
 
 let conversationHistory = [], currentPlan = null, pageContext = null;
-let userName = "", isRecording = false, recognition = null;
+let userName = "", isRecording = false;
 
 const messagesEl = document.getElementById("messages");
 const userInputEl = document.getElementById("user-input");
@@ -16,21 +14,65 @@ const avatarEl = document.getElementById("avatar");
 const pageTitleEl = document.getElementById("page-title-text");
 const pageFaviconEl = document.getElementById("page-favicon");
 
+// ── Conexión persistente con background para recibir STT ──
+const bgPort = chrome.runtime.connect({ name: "sidepanel" });
+bgPort.onMessage.addListener((message) => {
+    if (message.type === "STT_RESULT") {
+        userInputEl.value = message.transcript;
+        stopRecording();
+        sendToAgent(message.transcript);
+    }
+    if (message.type === "STT_ERROR") {
+        stopRecording();
+        if (message.error === "not-allowed") {
+            addMessage("agent", "No tengo permiso para el micrófono. Haz clic en el candado de la barra de Chrome → Micrófono → Permitir.");
+        } else if (message.error === "no-speech") {
+            addMessage("agent", "No escuché nada. ¿Intentamos de nuevo?");
+        } else if (message.error === "no_support") {
+            addMessage("agent", "Tu navegador no soporta reconocimiento de voz.");
+        }
+    }
+    if (message.type === "STT_END") {
+        stopRecording();
+    }
+});
+
 async function init() {
     await loadApiKey();
     await loadUserProfile();
-    await loadPageContext();
-    setupSpeechRecognition();
     setupEventListeners();
 
     if (!GROQ_KEY) {
         showKeySetup();
         return;
     }
-    await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+
+    // Inyecta content script e lee contexto de la página al iniciar
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        if (tabs[0]) {
+            pageTitleEl.textContent = tabs[0].title || tabs[0].url || "Nueva pestaña";
+            try {
+                const domain = new URL(tabs[0].url).hostname;
+                pageFaviconEl.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+            } catch { }
+
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabs[0].id },
+                    files: ["content.js"]
+                });
+            } catch (e) { } // ya estaba inyectado
+
+            chrome.runtime.sendMessage({ type: "GET_PAGE_CONTEXT" }, async (context) => {
+                pageContext = context || null;
+                await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+            });
+        } else {
+            await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+        }
+    });
 }
 
-// ── Carga la key desde chrome.storage ──
 async function loadApiKey() {
     return new Promise(resolve => {
         chrome.storage.local.get(["groqKey"], (data) => {
@@ -40,18 +82,18 @@ async function loadApiKey() {
     });
 }
 
-// ── Pantalla de configuración si no hay key ──
 function showKeySetup() {
     messagesEl.innerHTML = `
     <div class="setup-card">
       <div class="setup-title">✦ Configura AlejandrIA</div>
-      <div class="setup-desc">Necesito tu API key de Groq para funcionar.<br>Es gratis en <a href="https://console.groq.com" target="_blank">console.groq.com</a></div>
+      <div class="setup-desc">
+        Necesito tu API key de Groq para funcionar.<br>
+        Es gratis en <a href="https://console.groq.com" target="_blank">console.groq.com</a>
+      </div>
       <input type="password" id="key-input" placeholder="gsk_..." spellcheck="false"/>
-      <button id="key-save-btn">Guardar y continuar</button>
+      <button id="key-save-btn">Guardar y continuar →</button>
     </div>
   `;
-
-    // Estilos inline para la pantalla de setup
     const style = document.createElement("style");
     style.textContent = `
     .setup-card { background: var(--bg2); border: 1px solid rgba(124,106,247,0.3); border-radius: 12px; padding: 20px; margin: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -64,7 +106,6 @@ function showKeySetup() {
     #key-save-btn:hover { background: var(--accent2); }
   `;
     document.head.appendChild(style);
-
     document.getElementById("key-save-btn").addEventListener("click", async () => {
         const key = document.getElementById("key-input").value.trim();
         if (!key.startsWith("gsk_")) {
@@ -74,7 +115,7 @@ function showKeySetup() {
         GROQ_KEY = key;
         chrome.storage.local.set({ groqKey: key });
         messagesEl.innerHTML = "";
-        await sendToAgent(buildGreeting(), { isSystemTrigger: true });
+        init();
     });
 }
 
@@ -85,26 +126,6 @@ async function loadUserProfile() {
             conversationHistory = data.conversationHistory || [];
             currentPlan = data.currentPlan || null;
             resolve();
-        });
-    });
-}
-
-async function loadPageContext() {
-    return new Promise(resolve => {
-        chrome.runtime.sendMessage({ type: "GET_ACTIVE_TAB_URL" }, (tabInfo) => {
-            if (tabInfo) {
-                pageTitleEl.textContent = tabInfo.title || tabInfo.url || "Nueva pestaña";
-                if (tabInfo.url) {
-                    try {
-                        const domain = new URL(tabInfo.url).hostname;
-                        pageFaviconEl.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
-                    } catch { }
-                }
-            }
-            resolve();
-        });
-        chrome.runtime.sendMessage({ type: "GET_PAGE_CONTEXT" }, (context) => {
-            pageContext = context;
         });
     });
 }
@@ -155,16 +176,22 @@ async function handleSend() {
 }
 
 async function analyzeCurrentPage() {
-    chrome.runtime.sendMessage({ type: "GET_PAGE_CONTEXT" }, async (context) => {
-        pageContext = context;
-        if (!context || context.error) {
-            addMessage("agent", "No pude leer esta página. Prueba en cualquier sitio web.");
-            return;
-        }
-        await sendToAgent(
-            `Analiza esta página: "${context.title}" (${context.url}). Dime de qué se trata en 2-3 frases y pregúntame si quiero aprender algo.`,
-            { isSystemTrigger: true, context }
-        );
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        if (!tabs[0]) return;
+        try {
+            await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, files: ["content.js"] });
+        } catch (e) { }
+        chrome.runtime.sendMessage({ type: "GET_PAGE_CONTEXT" }, async (context) => {
+            pageContext = context;
+            if (!context || context.error) {
+                addMessage("agent", "No pude leer esta página. Intenta recargarla primero.");
+                return;
+            }
+            await sendToAgent(
+                `Analiza esta página: "${context.title}" (${context.url}). Dime de qué se trata en 2-3 frases y pregúntame si quiero aprender algo.`,
+                { isSystemTrigger: true, context }
+            );
+        });
     });
 }
 
@@ -185,9 +212,25 @@ async function showCurrentPlan() {
     renderPlanCard(currentPlan);
 }
 
+function toggleMic() { isRecording ? stopRecording() : startRecording(); }
+
+function startRecording() {
+    isRecording = true;
+    micBtn.classList.add("recording");
+    setStatus("Escuchando...", true);
+    chrome.runtime.sendMessage({ type: "START_RECORDING" });
+}
+
+function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    micBtn.classList.remove("recording");
+    setStatus("Lista para aprender contigo");
+    chrome.runtime.sendMessage({ type: "STOP_RECORDING" });
+}
+
 async function sendToAgent(userMessage, options = {}) {
     const { isSystemTrigger = false, context = pageContext } = options;
-
     if (!isSystemTrigger) {
         addMessage("user", userMessage);
         if (conversationHistory.length < 4 && userMessage.length < 30) {
@@ -195,16 +238,11 @@ async function sendToAgent(userMessage, options = {}) {
             if (n) { userName = n; chrome.storage.local.set({ userName }); }
         }
     }
-
     const typingId = showTyping();
-
     const pageInfo = context
-        ? `\n\n[Página activa: "${context.title}" | ${context.url} | ${context.platform}${context.hasVideo ? " | contiene video" : ""}${context.headings?.length ? " | Temas: " + context.headings.slice(0, 3).join(", ") : ""}]`
+        ? `\n\n[Página activa: "${context.title}" | ${context.url} | ${context.platform}${context.hasVideo ? " | contiene video" : ""}${context.headings?.length ? " | Temas: " + context.headings.slice(0, 3).join(", ") : ""}${context.paragraphs ? " | Contenido: " + context.paragraphs.substring(0, 500) : ""}]`
         : "";
-
-    if (!isSystemTrigger) {
-        conversationHistory.push({ role: "user", content: userMessage });
-    }
+    if (!isSystemTrigger) conversationHistory.push({ role: "user", content: userMessage });
 
     const messages = [
         { role: "system", content: buildSystemPrompt() },
@@ -231,35 +269,20 @@ async function sendToAgent(userMessage, options = {}) {
                 max_tokens: 512
             })
         });
-
         removeTyping(typingId);
-
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error("Groq error:", errText);
-            throw new Error(`Groq ${response.status}`);
-        }
-
+        if (!response.ok) { const e = await response.text(); throw new Error(`Groq ${response.status}: ${e}`); }
         const data = await response.json();
         const agentReply = data.choices?.[0]?.message?.content || "Sin respuesta.";
-
         addMessage("agent", agentReply);
         conversationHistory.push({ role: "assistant", content: agentReply });
         if (conversationHistory.length > 30) conversationHistory = conversationHistory.slice(-30);
         chrome.storage.local.set({ conversationHistory });
-
         const detectedPlan = extractPlanFromResponse(agentReply);
-        if (detectedPlan) {
-            currentPlan = detectedPlan;
-            chrome.storage.local.set({ currentPlan });
-            renderPlanCard(detectedPlan);
-        }
-
+        if (detectedPlan) { currentPlan = detectedPlan; chrome.storage.local.set({ currentPlan }); renderPlanCard(detectedPlan); }
         speak(agentReply);
-
     } catch (err) {
         removeTyping(typingId);
-        addMessage("agent", "Ups, tuve un problema conectándome. Revisa la consola (F12).");
+        addMessage("agent", "Ups, tuve un problema conectándome.");
         console.error("AlejandrIA error:", err);
     }
 }
@@ -311,58 +334,18 @@ function setStatus(text, active = false) {
 }
 
 function escapeHtml(text) {
-    return text
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        .replace(/\n/g, "<br>");
-}
-
-function setupSpeechRecognition() {
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
-        micBtn.style.opacity = "0.3"; return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SR();
-    recognition.lang = "es-CO";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = e => {
-        const t = e.results[0][0].transcript;
-        userInputEl.value = t;
-        stopRecording();
-        sendToAgent(t);
-    };
-    recognition.onerror = stopRecording;
-    recognition.onend = stopRecording;
-}
-
-function toggleMic() { isRecording ? stopRecording() : startRecording(); }
-
-function startRecording() {
-    if (!recognition) return;
-    isRecording = true;
-    micBtn.classList.add("recording");
-    setStatus("Escuchando...", true);
-    recognition.start();
-}
-
-function stopRecording() {
-    isRecording = false;
-    micBtn.classList.remove("recording");
-    setStatus("Lista para aprender contigo");
-    try { recognition?.stop(); } catch { }
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
 }
 
 function speak(text) {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
-    const clean = text
-        .replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1")
+    const clean = text.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1")
         .replace(/#{1,3} /g, "").replace(/<br>/g, " ").substring(0, 400);
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = "es-CO"; u.rate = 1.05;
     const voices = window.speechSynthesis.getVoices();
-    const v = voices.find(v => v.lang.startsWith("es") &&
-        (v.name.includes("Google") || v.name.includes("Microsoft")))
+    const v = voices.find(v => v.lang.startsWith("es") && (v.name.includes("Google") || v.name.includes("Microsoft")))
         || voices.find(v => v.lang.startsWith("es"));
     if (v) u.voice = v;
     u.onstart = () => { avatarEl.classList.add("speaking"); setStatus("Hablando...", true); };
@@ -371,18 +354,14 @@ function speak(text) {
 }
 
 function extractName(text) {
-    const patterns = [
-        /(?:soy|me llamo|mi nombre es)\s+([A-ZÁÉÍÓÚ][a-záéíóú]+)/i,
-        /^([A-ZÁÉÍÓÚ][a-záéíóú]{2,15})$/
-    ];
+    const patterns = [/(?:soy|me llamo|mi nombre es)\s+([A-ZÁÉÍÓÚ][a-záéíóú]+)/i, /^([A-ZÁÉÍÓÚ][a-záéíóú]{2,15})$/];
     for (const p of patterns) { const m = text.match(p); if (m) return m[1]; }
     return null;
 }
 
 function extractPlanFromResponse(text) {
     if (!text.includes("PLAN:") && !text.includes("plan de aprendizaje")) return null;
-    const steps = text.split("\n")
-        .filter(l => /^\d+[\.\)]\s/.test(l.trim()))
+    const steps = text.split("\n").filter(l => /^\d+[\.\)]\s/.test(l.trim()))
         .map(l => ({ text: l.replace(/^\d+[\.\)]\s/, "").trim(), done: false }));
     if (steps.length < 2) return null;
     const m = text.match(/(?:aprender|plan para|plan de aprendizaje de)\s+"?([^"\n.]+)"?/i);
